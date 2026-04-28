@@ -1,0 +1,13 @@
+{
+  "appName": "Student Manager",
+  "entities": [
+    {
+      "name": "students",
+      "fields": [
+        { "name": "name",  "type": "text",   "required": true },
+        { "name": "age",   "type": "number" },
+        { "name": "email", "type": "text" }
+      ]
+    }
+  ]
+}
