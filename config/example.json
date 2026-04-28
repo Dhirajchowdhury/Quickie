@@ -1,13 +1,27 @@
 {
-  "appName": "Student Manager",
+  "appName": "School CRM",
   "entities": [
     {
       "name": "students",
       "fields": [
-        { "name": "name",  "type": "text",   "required": true },
-        { "name": "age",   "type": "number" },
-        { "name": "email", "type": "text" }
+        { "name": "name",   "type": "text",    "required": true, "label": "Full Name" },
+        { "name": "email",  "type": "email",   "required": true },
+        { "name": "age",    "type": "number" },
+        { "name": "dob",    "type": "date",    "label": "Date of Birth" },
+        { "name": "active", "type": "boolean", "label": "Active?" }
+      ]
+    },
+    {
+      "name": "courses",
+      "fields": [
+        { "name": "title",   "type": "text",    "required": true },
+        { "name": "credits", "type": "number",  "required": true },
+        { "name": "open",    "type": "boolean", "label": "Open for enrollment?" }
       ]
     }
+  ],
+  "pages": [
+    { "name": "Students", "entity": "students" },
+    { "name": "Courses",  "entity": "courses" }
   ]
 }
