@@ -1,183 +1,79 @@
-// require('dotenv').config();
-// const express = require('express');
-// const cors = require('cors');
-
-// const pool = require('./db');
-// const authRoutes = require('./routes/auth');
-// const configRoutes = require('./routes/config');
-// const recordRoutes = require('./routes/records');
-
-// const app = express();
-
-// // Strip trailing slash from CLIENT_URL so origin matching is always exact
-// const clientUrl = (process.env.CLIENT_URL || '').replace(/\/$/, '');
-
-// const allowedOrigins = [
-//   'http://localhost:5173',
-//   'http://localhost:4173', // vite preview
-//   ...(clientUrl ? [clientUrl] : []),
-// ];
-
-// // app.use(cors({
-// //   origin: (origin, callback) => {
-// //     // Allow requests with no origin (curl, Postman, server-to-server)
-// //     if (!origin) return callback(null, true);
-// //     if (allowedOrigins.includes(origin)) return callback(null, true);
-// //     console.warn(`[CORS] Blocked origin: ${origin}`);
-// //     callback(new Error(`CORS: origin ${origin} not allowed`));
-// //   },
-// //   credentials: true,
-// // }));
-
-// app.use(cors({
-//   origin: function (origin, callback) {
-//     if (!origin) return callback(null, true);
-
-//     const allowedOrigins = [
-//       'http://localhost:5173',
-//       'http://localhost:4173',
-//       process.env.CLIENT_URL,
-//     ];
-
-//     const isAllowed = allowedOrigins.some((allowed) =>
-//       origin.startsWith(allowed)
-//     );
-
-//     if (isAllowed) {
-//       return callback(null, true);
-//     }
-
-//     console.warn('[CORS BLOCKED]:', origin);
-
-//     // TEMP: allow anyway to debug (remove later)
-//     return callback(null, true);
-//   },
-//   credentials: true,
-// }));
-
-// app.use(express.json());
-
-// // ── Health / smoke-test routes ─────────────────────────────────────────────
-// app.get('/api/test', (req, res) => {
-//   res.json({ message: 'Backend is working', timestamp: new Date().toISOString() });
-// });
-
-// app.get('/health', async (req, res) => {
-//   try {
-//     const result = await pool.query('SELECT NOW()');
-//     res.json({ status: 'ok', dbTime: result.rows[0].now });
-//   } catch (err) {
-//     res.status(500).json({ status: 'error', error: 'DB not connected' });
-//   }
-// });
-
-// // ── API routes ─────────────────────────────────────────────────────────────
-// app.use('/api/auth', authRoutes);
-// app.use('/api/config', configRoutes);
-// app.use('/api', recordRoutes);
-
-// // ── Global error handler ───────────────────────────────────────────────────
-// app.use((err, req, res, next) => {
-//   console.error('[Server Error]', err.message);
-//   res.status(500).json({ error: 'Something went wrong' });
-// });
-
-// const PORT = process.env.PORT || 4000;
-// app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
 const pool = require('./db');
-const authRoutes = require('./routes/auth');
+const authRoutes   = require('./routes/auth');
 const configRoutes = require('./routes/config');
 const recordRoutes = require('./routes/records');
 
 const app = express();
 
-// ✅ Clean CLIENT_URL (no trailing slash)
+// ── CORS ───────────────────────────────────────────────────────────────────
+// Strip trailing slash so matching is always exact
 const clientUrl = (process.env.CLIENT_URL || '').replace(/\/$/, '');
 
-// ✅ Allowed origins
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:4173',
   clientUrl,
 ].filter(Boolean);
 
-// ✅ CORS FIX (robust + safe)
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true); // allow Postman / server requests
+  origin(origin, callback) {
+    // No origin = curl / Postman / server-to-server — always allow
+    if (!origin) return callback(null, true);
 
-    const isAllowed = allowedOrigins.some((allowed) =>
-      origin.startsWith(allowed)
-    );
-
-    if (isAllowed) {
+    if (allowedOrigins.some((o) => origin.startsWith(o))) {
       return callback(null, true);
     }
 
-    console.warn('[CORS BLOCKED]:', origin);
-    return callback(new Error('Not allowed by CORS')); // ❗ block in production
+    console.warn('[CORS] Blocked:', origin, '| Allowed:', allowedOrigins);
+    callback(new Error(`CORS: origin "${origin}" not allowed`));
   },
   credentials: true,
 }));
 
-// ✅ Middleware
+// ── Core middleware ────────────────────────────────────────────────────────
 app.use(express.json());
 
-// ─────────────────────────────────────────────
-// ✅ Health / Test routes (PUBLIC)
-// ─────────────────────────────────────────────
-app.get('/api/test', (req, res) => {
+// ── Smoke-test / health routes (no auth required) ─────────────────────────
+app.get('/api/test', (_req, res) => {
   res.json({
-    message: 'Backend is working',
+    message: 'Backend is working ✅',
     timestamp: new Date().toISOString(),
+    env: {
+      nodeEnv:         process.env.NODE_ENV || 'development',
+      clientUrl:       clientUrl || '(not set)',
+      googleClientId:  process.env.GOOGLE_CLIENT_ID ? '✅ set' : '❌ MISSING',
+      googleSecret:    process.env.GOOGLE_CLIENT_SECRET ? '✅ set' : '❌ MISSING',
+      jwtSecret:       process.env.JWT_SECRET ? '✅ set' : '❌ MISSING',
+      databaseUrl:     process.env.DATABASE_URL ? '✅ set' : '❌ MISSING',
+    },
   });
 });
 
-app.get('/health', async (req, res) => {
+app.get('/health', async (_req, res) => {
   try {
     const result = await pool.query('SELECT NOW()');
-    res.json({
-      status: 'ok',
-      dbTime: result.rows[0].now,
-    });
+    res.json({ status: 'ok', dbTime: result.rows[0].now });
   } catch (err) {
-    console.error('[DB ERROR]:', err.message);
-    res.status(500).json({
-      status: 'error',
-      error: 'DB not connected',
-    });
+    console.error('[DB] Health check failed:', err.message);
+    res.status(500).json({ status: 'error', error: 'DB not connected' });
   }
 });
 
-// ─────────────────────────────────────────────
-// ✅ API routes
-// ─────────────────────────────────────────────
-app.use('/api/auth', authRoutes);   // 🔓 must be PUBLIC
+// ── API routes ─────────────────────────────────────────────────────────────
+app.use('/api/auth',   authRoutes);
 app.use('/api/config', configRoutes);
-app.use('/api', recordRoutes);
+app.use('/api',        recordRoutes);
 
-// ─────────────────────────────────────────────
-// ✅ Global error handler (improved)
-// ─────────────────────────────────────────────
-app.use((err, req, res, next) => {
-  console.error('[SERVER ERROR]:', err.stack);
-
-  res.status(err.status || 500).json({
-    error: err.message || 'Something went wrong',
-  });
+// ── Global error handler ───────────────────────────────────────────────────
+app.use((err, _req, res, _next) => {
+  console.error('[Server Error]', err.message);
+  res.status(err.status || 500).json({ error: err.message || 'Something went wrong' });
 });
 
-// ─────────────────────────────────────────────
-// ✅ Start server
-// ─────────────────────────────────────────────
+// ── Start ──────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 4000;
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server on port ${PORT} | CLIENT_URL: ${clientUrl || '(not set)'}`));
