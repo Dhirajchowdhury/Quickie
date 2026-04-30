@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import Auth from './components/Auth';
 import ConfigUpload from './components/ConfigUpload';
 import EntityApp from './components/EntityApp';
+import DynamicForm from './components/DynamicForm';
+import RecordTable from './components/RecordTable';
 import Toast from './components/Toast';
 import LandingPage from './components/landing/LandingPage';
 import Logo from './components/ui/Logo';
@@ -23,12 +25,78 @@ function normalizeConfig(cfg) {
   };
 }
 
-// Sidebar nav icon
 function TableIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 14h18M10 3v18M6 3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6a3 3 0 013-3z" />
     </svg>
+  );
+}
+
+/**
+ * Renders the main content area based on what the config provides.
+ * Handles: uiConfig (form/table), activeEntity, or empty state.
+ */
+function MainContent({ uiConfig, activeEntity, toast }) {
+  // ui config takes priority when present
+  if (uiConfig) {
+    const { type, fields = [] } = uiConfig;
+
+    if (type === 'form') {
+      return (
+        <div className="max-w-2xl mx-auto px-6 py-7">
+          <DynamicForm
+            entity={{ name: 'custom', fields }}
+            onSubmit={() => {}}
+            editRecord={null}
+            onCancelEdit={() => {}}
+          />
+        </div>
+      );
+    }
+
+    if (type === 'table') {
+      return (
+        <div className="max-w-4xl mx-auto px-6 py-7">
+          <RecordTable fields={fields} records={[]} onEdit={() => {}} onDelete={() => {}} />
+        </div>
+      );
+    }
+
+    // Unknown component type — show fallback instead of crashing
+    return (
+      <div className="flex items-center justify-center h-full text-center p-8">
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-8 py-6 max-w-sm">
+          <p className="text-sm font-semibold text-amber-700">Unsupported component: <code>{type}</code></p>
+          <p className="text-xs text-amber-600 mt-1">Check your config's <code>ui.type</code> value.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Normal entity-driven view
+  if (activeEntity) {
+    return (
+      <div className="max-w-4xl mx-auto px-6 py-7 space-y-5 animate-slide-up">
+        <EntityApp entity={activeEntity} toast={toast} />
+      </div>
+    );
+  }
+
+  // Nothing selected
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center p-8 animate-fade-in">
+      <div
+        className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
+        style={{ background: 'linear-gradient(135deg, #eef2ff, #ede9fe)' }}
+      >
+        <TableIcon className="w-8 h-8 text-indigo-400" />
+      </div>
+      <h3 className="text-base font-semibold text-slate-800">Select an entity</h3>
+      <p className="text-sm text-slate-400 mt-1.5 max-w-xs leading-relaxed">
+        Choose an entity from the sidebar to view and manage its records.
+      </p>
+    </div>
   );
 }
 
@@ -74,13 +142,13 @@ export default function App() {
   }
 
   const activeEntity = config?.entities?.find((e) => e.name === activePage?.entity) || null;
+  const uiConfig = config?.ui || null;
 
   return (
     <div className="min-h-screen bg-[#f5f6fa] flex flex-col font-sans text-slate-900 antialiased">
 
       {/* ── Header ── */}
       <header className="h-14 bg-white border-b border-slate-200/80 px-5 flex items-center justify-between flex-shrink-0 z-20 relative">
-        {/* Subtle gradient line at very bottom of header */}
         <div
           className="absolute bottom-0 left-0 right-0 h-[2px] opacity-60"
           style={{ background: 'linear-gradient(90deg, #6366f1, #8b5cf6, #06b6d4)' }}
@@ -144,7 +212,7 @@ export default function App() {
                       w-full text-left px-3 py-2.5 rounded-xl text-sm
                       flex items-center gap-2.5 transition-all duration-150
                       ${isActive
-                        ? 'sidebar-active pl-[10px]'   /* pl-[10px] = 12px - 2px border */
+                        ? 'sidebar-active pl-[10px]'
                         : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 font-medium'
                       }
                     `}
@@ -179,37 +247,11 @@ export default function App() {
 
           {/* ── Main ── */}
           <main className="flex-1 overflow-y-auto bg-[#f5f6fa]">
-            {activeEntity ? (
-              <div className="max-w-4xl mx-auto px-6 py-7 space-y-5 animate-slide-up">
-
-                {/* Page header */}
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h1 className="text-lg font-bold text-slate-900 capitalize tracking-tight">
-                      {activePage?.name}
-                    </h1>
-                    <p className="text-xs text-slate-400 mt-0.5 font-medium">
-                      {config.appName} · {activePage?.name?.toLowerCase()} records
-                    </p>
-                  </div>
-                </div>
-
-                <EntityApp entity={activeEntity} toast={toast} />
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center p-8 animate-fade-in">
-                <div
-                  className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5 shadow-glow-brand"
-                  style={{ background: 'linear-gradient(135deg, #eef2ff, #ede9fe)' }}
-                >
-                  <TableIcon className="w-8 h-8 text-indigo-400" />
-                </div>
-                <h3 className="text-base font-semibold text-slate-800">Select an entity</h3>
-                <p className="text-sm text-slate-400 mt-1.5 max-w-xs leading-relaxed">
-                  Choose an entity from the sidebar to view and manage its records.
-                </p>
-              </div>
-            )}
+            <MainContent
+              uiConfig={uiConfig}
+              activeEntity={activeEntity}
+              toast={toast}
+            />
           </main>
         </div>
       )}
