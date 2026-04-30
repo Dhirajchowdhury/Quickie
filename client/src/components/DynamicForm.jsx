@@ -2,6 +2,28 @@ import React, { useState, useEffect } from 'react';
 import Input from './ui/Input';
 import Button from './ui/Button';
 
+const VALID_FIELD_TYPES = ['text', 'number', 'email', 'password', 'date', 'boolean'];
+
+/**
+ * Sanitize a field definition before rendering.
+ * Ensures the form never crashes on malformed config data.
+ */
+function sanitizeField(field) {
+  if (!field || typeof field !== 'object') {
+    return { name: '_unknown', type: 'text', required: false, label: 'Unknown Field' };
+  }
+  return {
+    name:     typeof field.name === 'string' && field.name ? field.name : '_unknown',
+    type:     typeof field.type === 'string' && VALID_FIELD_TYPES.includes(field.type)
+                ? field.type
+                : 'text',
+    required: field.required === true,
+    label:    typeof field.label === 'string' && field.label
+                ? field.label
+                : (typeof field.name === 'string' && field.name ? field.name : 'Unnamed Field'),
+  };
+}
+
 function FieldInput({ field, value, onChange, error }) {
   if (field.type === 'boolean') {
     const checked = value === true || value === 'true';
@@ -76,8 +98,11 @@ function validateField(field, value) {
 export default function DynamicForm({ entity, onSubmit, editRecord, onCancelEdit }) {
   const isEditing = !!editRecord;
 
+  // Sanitize all fields before any rendering or state initialization
+  const safeFields = (entity?.fields ?? []).map(sanitizeField);
+
   const emptyState = () =>
-    Object.fromEntries(entity.fields.map((f) => [f.name, f.type === 'boolean' ? false : '']));
+    Object.fromEntries(safeFields.map((f) => [f.name, f.type === 'boolean' ? false : '']));
 
   const [values, setValues] = useState(emptyState);
   const [fieldErrors, setFieldErrors] = useState({});
@@ -100,14 +125,14 @@ export default function DynamicForm({ entity, onSubmit, editRecord, onCancelEdit
     setServerErrors([]);
 
     const errors = {};
-    for (const field of entity.fields) {
+    for (const field of safeFields) {
       const err = validateField(field, values[field.name]);
       if (err) errors[field.name] = err;
     }
     if (Object.keys(errors).length) { setFieldErrors(errors); return; }
 
     const payload = {};
-    for (const field of entity.fields) {
+    for (const field of safeFields) {
       if (field.type === 'number') payload[field.name] = Number(values[field.name]);
       else if (field.type === 'boolean')
         payload[field.name] = values[field.name] === true || values[field.name] === 'true';
@@ -182,7 +207,7 @@ export default function DynamicForm({ entity, onSubmit, editRecord, onCancelEdit
 
       <form onSubmit={handleSubmit}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-0.5">
-          {entity.fields.map((field) => (
+          {safeFields.map((field) => (
             <FieldInput
               key={field.name}
               field={field}

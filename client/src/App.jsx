@@ -15,7 +15,12 @@ function normalizeConfig(cfg) {
     cfg.pages && cfg.pages.length > 0
       ? cfg.pages
       : entities.map((e) => ({ name: e.name, entity: e.name }));
-  return { ...cfg, entities, pages };
+  return {
+    ...cfg,
+    appName: cfg.appName || 'Untitled App',
+    entities,
+    pages,
+  };
 }
 
 // Sidebar nav icon

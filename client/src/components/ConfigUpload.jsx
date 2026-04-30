@@ -5,6 +5,7 @@ import Button from './ui/Button';
 export default function ConfigUpload({ onConfig }) {
   const [text, setText] = useState('');
   const [error, setError] = useState('');
+  const [warnings, setWarnings] = useState([]); // non-blocking issues from server
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState('');
   const fileRef = useRef(null);
@@ -12,6 +13,7 @@ export default function ConfigUpload({ onConfig }) {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    setWarnings([]);
 
     let parsed;
     try {
@@ -24,7 +26,14 @@ export default function ConfigUpload({ onConfig }) {
     setLoading(true);
     try {
       const res = await api.post('/config', parsed);
-      onConfig(res.data.config);
+      // Show any non-blocking warnings before handing off to the app
+      if (res.data.warnings?.length) {
+        setWarnings(res.data.warnings);
+        // Small delay so the user can read the warnings, then proceed
+        setTimeout(() => onConfig(res.data.config), 1800);
+      } else {
+        onConfig(res.data.config);
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to save config');
     } finally {
@@ -106,7 +115,7 @@ export default function ConfigUpload({ onConfig }) {
               <textarea
                 rows={10}
                 value={text}
-                onChange={(e) => { setText(e.target.value); setError(''); }}
+                onChange={(e) => { setText(e.target.value); setError(''); setWarnings([]); }}
                 placeholder={`{\n  "appName": "My App",\n  "entities": [...]\n}`}
                 className={`
                   w-full border rounded-xl px-4 py-3 text-sm font-mono
@@ -121,13 +130,35 @@ export default function ConfigUpload({ onConfig }) {
               />
             </div>
 
-            {/* Error */}
+            {/* Hard error — blocks submission */}
             {error && (
               <div className="flex items-center gap-2.5 p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
                 <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 {error}
+              </div>
+            )}
+
+            {/* Warnings — non-blocking, app will still load */}
+            {warnings.length > 0 && (
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-4 h-4 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  </svg>
+                  <span className="text-xs font-semibold text-amber-700 uppercase tracking-wide">
+                    Config warnings — app will still load
+                  </span>
+                </div>
+                <ul className="space-y-1">
+                  {warnings.map((w, i) => (
+                    <li key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
+                      <span className="mt-0.5 flex-shrink-0">•</span>
+                      {w}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
