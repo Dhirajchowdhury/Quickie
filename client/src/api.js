@@ -1,11 +1,14 @@
 import axios from 'axios';
 
-// In production (Vercel), set VITE_API_URL to your backend URL, e.g.:
-//   https://quickie-server.onrender.com
-// In development, leave it unset — Vite's dev proxy handles /api → localhost:4000
+// VITE_API_URL must be set in Vercel environment variables to your Render backend URL.
+// Example: https://quickie-server.onrender.com
+//
+// In local dev, leave VITE_API_URL unset — Vite's dev proxy rewrites /api → localhost:4000.
 const baseURL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
   : '/api';
+
+console.log('[API] baseURL:', baseURL);
 
 const api = axios.create({ baseURL });
 
@@ -15,5 +18,21 @@ api.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
+
+// Log every response error so failures are visible in the browser console
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    console.error(
+      '[API Error]',
+      err.config?.method?.toUpperCase(),
+      err.config?.url,
+      '→',
+      err.response?.status,
+      err.response?.data || err.message
+    );
+    return Promise.reject(err);
+  }
+);
 
 export default api;
