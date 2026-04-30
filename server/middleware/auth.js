@@ -1,14 +1,32 @@
 const jwt = require('jsonwebtoken');
 
-module.exports = function (req, res, next) {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'No token provided' });
+/**
+ * Auth middleware — verifies JWT and attaches userId to the request.
+ *
+ * Sets req.userId (string UUID) on success.
+ * Rejects with 401 if token is missing, invalid, or contains no userId claim.
+ */
+module.exports = function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.userId = decoded.userId;
-    next();
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token provided' });
   }
+
+  const token = authHeader.split(' ')[1];
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  // Guard: token must contain a userId claim — never trust a token without one
+  if (!decoded.userId) {
+    return res.status(401).json({ error: 'Token is missing userId claim' });
+  }
+
+  req.userId = decoded.userId;
+  next();
 };

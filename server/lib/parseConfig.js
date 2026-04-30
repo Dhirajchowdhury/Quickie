@@ -1,85 +1,19 @@
-const VALID_TYPES = ['text', 'number', 'email', 'password', 'date', 'boolean'];
+const { coerceBoolean, coerceString } = require('./coerce');
+const resolveEntities = require('./resolveEntities');
 
 /**
- * Sanitize a single field definition.
- * Never throws — always returns a safe object.
- */
-function sanitizeField(field, entityName, index, warnings) {
-  // field.name is the only hard requirement — without it we can't key the field
-  if (!field || typeof field.name !== 'string' || !field.name.trim()) {
-    warnings.push(`Entity "${entityName}": field at index ${index} has no name — skipped`);
-    return null; // caller filters nulls out
-  }
-
-  const rawType = field.type;
-  let type = 'text';
-
-  if (rawType === undefined || rawType === null) {
-    // No type provided — silently default
-    type = 'text';
-  } else if (typeof rawType !== 'string') {
-    warnings.push(`Entity "${entityName}" › field "${field.name}": type is not a string — defaulting to "text"`);
-    type = 'text';
-  } else if (!VALID_TYPES.includes(rawType)) {
-    warnings.push(`Entity "${entityName}" › field "${field.name}": unknown type "${rawType}" — defaulting to "text"`);
-    type = 'text';
-  } else {
-    type = rawType;
-  }
-
-  return {
-    name:     field.name.trim(),
-    type,
-    required: field.required === true,
-    label:    typeof field.label === 'string' && field.label.trim()
-                ? field.label.trim()
-                : field.name.trim(),
-  };
-}
-
-/**
- * Sanitize a single entity definition.
- * Returns null (with a warning) if the entity has no usable name.
- */
-function sanitizeEntity(entity, index, warnings) {
-  if (!entity || typeof entity.name !== 'string' || !entity.name.trim()) {
-    warnings.push(`Entity at index ${index} has no name — skipped`);
-    return null;
-  }
-
-  const name = entity.name.trim();
-
-  if (!Array.isArray(entity.fields) || entity.fields.length === 0) {
-    warnings.push(`Entity "${name}" has no fields — it will render with an empty form`);
-    return { name, fields: [] };
-  }
-
-  const fields = entity.fields
-    .map((f, fi) => sanitizeField(f, name, fi, warnings))
-    .filter(Boolean); // remove nulls from skipped fields
-
-  if (fields.length === 0) {
-    warnings.push(`Entity "${name}": all fields were invalid — it will render with an empty form`);
-  }
-
-  return { name, fields };
-}
-
-/**
- * Parse and validate a Quickie JSON config.
+ * parseConfig — the single entry point for all config processing.
  *
- * Returns { appName, entities, pages, warnings }
+ * Accepts any JSON shape. Never throws except for truly unrecoverable input
+ * (not a JSON string, not an object).
  *
- * Throws ONLY for unrecoverable errors:
- *   - Input is not valid JSON (when passed as a string)
- *   - Input is not an object
- *
- * Everything else produces a warning and degrades gracefully.
+ * Returns:
+ *   { appName, entities, pages, ui, auth, warnings }
  */
 function parseConfig(raw) {
   const warnings = [];
 
-  // ── 1. Parse JSON string if needed ──────────────────────────────────────
+  // ── 1. Parse string input ────────────────────────────────────────────────
   let config;
   if (typeof raw === 'string') {
     try {
@@ -95,56 +29,55 @@ function parseConfig(raw) {
     throw new Error('Config must be a JSON object');
   }
 
-  // ── 2. appName — warn and default, never throw ───────────────────────────
-  let appName;
-  if (!config.appName || typeof config.appName !== 'string' || !config.appName.trim()) {
+  // ── 2. appName ───────────────────────────────────────────────────────────
+  const appName = coerceString(
+    config.appName ?? config.name ?? config.title,
+    'Untitled App'
+  );
+  if (appName === 'Untitled App') {
     warnings.push('No "appName" provided — defaulting to "Untitled App"');
-    appName = 'Untitled App';
-  } else {
-    appName = config.appName.trim();
   }
 
-  // ── 3. entities — optional, default to [] ───────────────────────────────
-  let entities = [];
-  if (!Object.prototype.hasOwnProperty.call(config, 'entities')) {
-    warnings.push('No "entities" key found — app will have no data entities');
-  } else if (!Array.isArray(config.entities)) {
-    warnings.push('"entities" is not an array — treating as empty');
-  } else if (config.entities.length === 0) {
-    warnings.push('"entities" array is empty — app will have no data entities');
-  } else {
-    entities = config.entities
-      .map((e, i) => sanitizeEntity(e, i, warnings))
-      .filter(Boolean);
+  // ── 3. entities — multi-format resolution ────────────────────────────────
+  const { entities, warnings: entityWarnings } = resolveEntities(config, warnings);
 
-    if (entities.length === 0) {
-      warnings.push('All entities were invalid and were skipped');
-    }
-  }
-
-  // ── 4. pages — auto-generate from entities if not provided ──────────────
+  // ── 4. pages — auto-generate if missing ─────────────────────────────────
   let pages = [];
   if (Array.isArray(config.pages) && config.pages.length > 0) {
     pages = config.pages
       .map((p, i) => {
-        if (!p || typeof p.name !== 'string' || typeof p.entity !== 'string') {
+        if (!p || typeof p !== 'object') {
+          warnings.push(`Page at index ${i} is not an object — skipped`);
+          return null;
+        }
+        const name   = coerceString(p.name ?? p.title, '');
+        const entity = coerceString(p.entity ?? p.table ?? p.model, '');
+        if (!name || !entity) {
           warnings.push(`Page at index ${i} is missing "name" or "entity" — skipped`);
           return null;
         }
-        return { name: p.name.trim(), entity: p.entity.trim() };
+        return { name, entity };
       })
       .filter(Boolean);
 
     if (pages.length === 0) {
-      warnings.push('All pages were invalid — falling back to auto-generated pages');
-      pages = entities.map((e) => ({ name: e.name, entity: e.name }));
+      warnings.push('All pages were invalid — auto-generating from entities');
     }
-  } else {
-    // Auto-generate one page per entity
+  }
+
+  if (pages.length === 0) {
     pages = entities.map((e) => ({ name: e.name, entity: e.name }));
   }
 
-  return { appName, entities, pages, warnings };
+  // ── 5. ui block — preserve as-is, just ensure it's an object or null ────
+  const ui = (config.ui && typeof config.ui === 'object') ? config.ui : null;
+
+  // ── 6. auth — coerce enabled flag ────────────────────────────────────────
+  const auth = config.auth && typeof config.auth === 'object'
+    ? { ...config.auth, enabled: coerceBoolean(config.auth.enabled, true) }
+    : { enabled: true };
+
+  return { appName, entities, pages, ui, auth, warnings };
 }
 
 module.exports = parseConfig;

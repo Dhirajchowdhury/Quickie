@@ -7,26 +7,9 @@ import LandingPage from './components/landing/LandingPage';
 import Logo from './components/ui/Logo';
 import useToast from './hooks/useToast';
 import api from './api';
-
-// ── Config normalizer ──────────────────────────────────────────────────────
-function normalizeConfig(cfg) {
-  if (!cfg) return null;
-
-  const entities = Array.isArray(cfg.entities) ? cfg.entities : [];
-  const pages =
-    Array.isArray(cfg.pages) && cfg.pages.length > 0
-      ? cfg.pages
-      : entities.map((e) => ({ name: e.name, entity: e.name }));
-
-  return {
-    ...cfg,
-    appName: typeof cfg.appName === 'string' && cfg.appName ? cfg.appName : 'Untitled App',
-    entities,
-    pages,
-    // Preserve ui block exactly as-is — never overwrite it
-    ui: cfg.ui && typeof cfg.ui === 'object' ? cfg.ui : null,
-  };
-}
+import normalizeConfig from './lib/normalizeConfig';
+import { resolveComponent } from './lib/componentRegistry';
+import { normalizeName } from './lib/normalizeConfig';
 
 // ── Sidebar icon ───────────────────────────────────────────────────────────
 function TableIcon({ className }) {
@@ -37,67 +20,52 @@ function TableIcon({ className }) {
   );
 }
 
-// ── Safe UI renderer — never crashes, always shows something ───────────────
-function SafeUI({ ui }) {
-  if (!ui || typeof ui !== 'object') return null;
-
-  const type = typeof ui.type === 'string' ? ui.type : null;
-
-  if (!type) {
-    return (
-      <div className="flex items-center justify-center h-full p-8">
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-8 py-6 max-w-sm text-center">
-          <p className="text-sm font-semibold text-amber-700">UI config is missing a <code>type</code> field.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (type === 'form') {
-    return (
-      <div className="max-w-2xl mx-auto px-6 py-7">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-          <h2 className="text-base font-semibold text-slate-900 mb-4">Form UI</h2>
-          <pre className="text-xs text-slate-600 bg-slate-50 rounded-xl p-4 overflow-auto">
-            {JSON.stringify(ui.fields || [], null, 2)}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
-  if (type === 'table') {
-    return (
-      <div className="max-w-4xl mx-auto px-6 py-7">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-          <h2 className="text-base font-semibold text-slate-900 mb-4">Table UI</h2>
-          <pre className="text-xs text-slate-600 bg-slate-50 rounded-xl p-4 overflow-auto">
-            {JSON.stringify(ui.fields || [], null, 2)}
-          </pre>
-        </div>
-      </div>
-    );
-  }
-
-  // Unknown type — show fallback instead of crashing
-  return (
-    <div className="flex items-center justify-center h-full p-8">
-      <div className="bg-red-50 border border-red-200 rounded-2xl px-8 py-6 max-w-sm text-center">
-        <p className="text-sm font-semibold text-red-700">
-          Unsupported component: <code className="bg-red-100 px-1 rounded">{type}</code>
-        </p>
-        <p className="text-xs text-red-500 mt-1">Check your config&apos;s <code>ui.type</code> value.</p>
-      </div>
-    </div>
-  );
-}
-
-// ── Main content area — decides what to render ─────────────────────────────
+/**
+ * MainContent — decides what to render in the main area.
+ *
+ * Priority:
+ *   1. config.ui.type  → resolved via component registry (never crashes)
+ *   2. activeEntity    → standard EntityApp CRUD view
+ *   3. fallback        → "select an entity" empty state
+ */
 function MainContent({ uiConfig, activeEntity, toast }) {
+  // ── UI config mode ───────────────────────────────────────────────────────
   if (uiConfig) {
-    return <SafeUI ui={uiConfig} />;
+    const type      = uiConfig?.type;
+    const Component = resolveComponent(type); // always returns something
+
+    // Pass safe props — components must handle missing/extra props gracefully
+    try {
+      return (
+        <div className="max-w-4xl mx-auto px-6 py-7">
+          <Component
+            entity={activeEntity ?? { name: 'ui', fields: uiConfig.fields ?? [] }}
+            fields={uiConfig.fields ?? []}
+            records={[]}
+            ui={uiConfig}
+            toast={toast}
+            onSubmit={() => {}}
+            onEdit={() => {}}
+            onDelete={() => {}}
+            editRecord={null}
+            onCancelEdit={() => {}}
+          />
+        </div>
+      );
+    } catch {
+      // Last-resort catch — component threw despite our best efforts
+      return (
+        <div className="flex items-center justify-center h-full p-8">
+          <div className="bg-red-50 border border-red-200 rounded-2xl px-8 py-6 max-w-sm text-center">
+            <p className="text-sm font-semibold text-red-700">Component crashed during render.</p>
+            <p className="text-xs text-red-500 mt-1">Type: <code>{String(type)}</code></p>
+          </div>
+        </div>
+      );
+    }
   }
 
+  // ── Entity mode ──────────────────────────────────────────────────────────
   if (activeEntity) {
     return (
       <div className="max-w-4xl mx-auto px-6 py-7 space-y-5 animate-slide-up">
@@ -106,6 +74,7 @@ function MainContent({ uiConfig, activeEntity, toast }) {
     );
   }
 
+  // ── Empty state ──────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col items-center justify-center h-full text-center p-8 animate-fade-in">
       <div
@@ -174,8 +143,11 @@ export default function App() {
     );
   }
 
-  const activeEntity = config?.entities?.find((e) => e.name === activePage?.entity) || null;
-  const uiConfig = config?.ui || null;
+  // Case-insensitive entity lookup — "Users" matches entity named "users"
+  const activeEntity = config?.entities?.find(
+    (e) => normalizeName(e.name) === normalizeName(activePage?.entity)
+  ) ?? null;
+  const uiConfig     = config?.ui ?? null;
 
   // ── Authenticated shell ──────────────────────────────────────────────────
   return (
@@ -236,33 +208,39 @@ export default function App() {
             </div>
 
             <nav className="flex-1 overflow-y-auto px-2.5 pb-4 space-y-0.5 scrollbar-thin">
-              {config.pages.map((page) => {
-                const isActive = activePage?.entity === page.entity;
-                return (
-                  <button
-                    key={page.entity}
-                    onClick={() => setActivePage(page)}
-                    className={`
-                      w-full text-left px-3 py-2.5 rounded-xl text-sm
-                      flex items-center gap-2.5 transition-all duration-150
-                      ${isActive
-                        ? 'sidebar-active pl-[10px]'
-                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 font-medium'
-                      }
-                    `}
-                  >
-                    <TableIcon
-                      className={`w-4 h-4 flex-shrink-0 transition-colors ${
-                        isActive ? 'text-indigo-500' : 'text-slate-400'
-                      }`}
-                    />
-                    <span className="truncate capitalize">{page.name}</span>
-                    {isActive && (
-                      <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
-                    )}
-                  </button>
-                );
-              })}
+              {config.pages.length === 0 ? (
+                <p className="px-3 py-4 text-xs text-slate-400 text-center">
+                  No entities found in config
+                </p>
+              ) : (
+                config.pages.map((page) => {
+                  const isActive = activePage?.entity === page.entity;
+                  return (
+                    <button
+                      key={page.entity}
+                      onClick={() => setActivePage(page)}
+                      className={`
+                        w-full text-left px-3 py-2.5 rounded-xl text-sm
+                        flex items-center gap-2.5 transition-all duration-150
+                        ${isActive
+                          ? 'sidebar-active pl-[10px]'
+                          : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800 font-medium'
+                        }
+                      `}
+                    >
+                      <TableIcon
+                        className={`w-4 h-4 flex-shrink-0 transition-colors ${
+                          isActive ? 'text-indigo-500' : 'text-slate-400'
+                        }`}
+                      />
+                      <span className="truncate capitalize">{page.name}</span>
+                      {isActive && (
+                        <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-500 flex-shrink-0" />
+                      )}
+                    </button>
+                  );
+                })
+              )}
             </nav>
 
             {/* Sidebar footer */}

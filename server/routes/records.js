@@ -3,20 +3,42 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
 const validateRecord = require('../lib/validateRecord');
+const { normalizeName } = require('../lib/resolveEntities');
 
 const router = express.Router();
 
-/** Pull field definitions from the user's saved config for validation */
+/**
+ * Pull field definitions from the user's saved config for validation.
+ * Uses normalizeName so "Users" matches entity named "users".
+ */
 async function getFields(userId, entity) {
   const result = await db.query('SELECT config FROM configs WHERE user_id = $1', [userId]);
   if (!result.rows.length) return null;
-  const ent = result.rows[0].config.entities.find((e) => e.name === entity);
+
+  const entities = result.rows[0].config?.entities ?? [];
+  const key = normalizeName(entity);
+  const ent = entities.find((e) => normalizeName(e.name) === key);
   return ent ? ent.fields : null;
 }
 
-// POST /api/:entity — create
+/**
+ * Check record ownership without exposing whether the record exists at all.
+ * Returns: 'ok' | 'not_found' | 'forbidden'
+ */
+async function checkOwnership(id, entity, userId) {
+  const result = await db.query(
+    'SELECT user_id FROM records WHERE id = $1 AND entity = $2',
+    [id, entity]
+  );
+  if (!result.rows.length) return 'not_found';
+  if (result.rows[0].user_id !== userId) return 'forbidden';
+  return 'ok';
+}
+
+// ── POST /api/:entity — create ─────────────────────────────────────────────
+// userId comes from the verified JWT — never from req.body
 router.post('/:entity', authMiddleware, async (req, res) => {
-  const { entity } = req.params;  // entity name comes from URL, never from body
+  const { entity } = req.params;
   const data = req.body;
 
   try {
@@ -38,7 +60,7 @@ router.post('/:entity', authMiddleware, async (req, res) => {
   }
 });
 
-// GET /api/:entity — list records for this user + entity only
+// ── GET /api/:entity — list (scoped to user + entity) ─────────────────────
 router.get('/:entity', authMiddleware, async (req, res) => {
   const { entity } = req.params;
   const { search } = req.query;
@@ -47,7 +69,6 @@ router.get('/:entity', authMiddleware, async (req, res) => {
     let query, params;
 
     if (search) {
-      // Search within JSONB text, still scoped to entity + user
       query = `SELECT * FROM records
                WHERE entity = $1 AND user_id = $2 AND data::text ILIKE $3
                ORDER BY created_at DESC`;
@@ -66,12 +87,17 @@ router.get('/:entity', authMiddleware, async (req, res) => {
   }
 });
 
-// PUT /api/:entity/:id — update, triple-locked: id + entity + user_id
+// ── PUT /api/:entity/:id — update (ownership enforced) ────────────────────
 router.put('/:entity/:id', authMiddleware, async (req, res) => {
   const { entity, id } = req.params;
   const data = req.body;
 
   try {
+    // Ownership check before touching data
+    const ownership = await checkOwnership(id, entity, req.userId);
+    if (ownership === 'not_found') return res.status(404).json({ error: 'Record not found' });
+    if (ownership === 'forbidden')  return res.status(403).json({ error: 'Access denied' });
+
     const fields = await getFields(req.userId, entity);
     if (!fields) return res.status(400).json({ error: `Unknown entity "${entity}"` });
 
@@ -91,11 +117,16 @@ router.put('/:entity/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// DELETE /api/:entity/:id — delete, triple-locked: id + entity + user_id
+// ── DELETE /api/:entity/:id — delete (ownership enforced) ─────────────────
 router.delete('/:entity/:id', authMiddleware, async (req, res) => {
   const { entity, id } = req.params;
 
   try {
+    // Ownership check before deleting
+    const ownership = await checkOwnership(id, entity, req.userId);
+    if (ownership === 'not_found') return res.status(404).json({ error: 'Record not found' });
+    if (ownership === 'forbidden')  return res.status(403).json({ error: 'Access denied' });
+
     const result = await db.query(
       `DELETE FROM records
        WHERE id = $1 AND entity = $2 AND user_id = $3

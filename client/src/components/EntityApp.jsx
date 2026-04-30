@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import DynamicForm from './DynamicForm';
 import RecordTable from './RecordTable';
 import api from '../api';
+import { normalizeField } from '../lib/normalizeConfig';
 
 /** Small stat pill used in the summary bar */
 function StatPill({ label, value, accent }) {
@@ -27,23 +28,30 @@ export default function EntityApp({ entity, toast }) {
   const [editRecord, setEditRecord] = useState(null);
   const [search, setSearch] = useState('');
 
+  // Sanitize fields once — guards against malformed entity definitions
+  const safeEntity = {
+    ...entity,
+    name:   typeof entity?.name === 'string' && entity.name ? entity.name : 'unknown',
+    fields: (entity?.fields ?? []).map(normalizeField),
+  };
+
   const fetchRecords = useCallback(async (q = '') => {
     setLoading(true);
     try {
-      const res = await api.get(`/${entity.name}`, { params: q ? { search: q } : {} });
+      const res = await api.get(`/${safeEntity.name}`, { params: q ? { search: q } : {} });
       setRecords(res.data);
     } catch (err) {
       toast(err.response?.data?.error || 'Failed to load records', 'error');
     } finally {
       setLoading(false);
     }
-  }, [entity.name]);
+  }, [safeEntity.name]);
 
   useEffect(() => {
     setEditRecord(null);
     setSearch('');
     fetchRecords();
-  }, [entity.name]);
+  }, [safeEntity.name]);
 
   useEffect(() => {
     const t = setTimeout(() => fetchRecords(search), 300);
@@ -52,11 +60,11 @@ export default function EntityApp({ entity, toast }) {
 
   async function handleSubmit(payload, id) {
     if (id) {
-      await api.put(`/${entity.name}/${id}`, payload);
+      await api.put(`/${safeEntity.name}/${id}`, payload);
       toast('Record updated');
       setEditRecord(null);
     } else {
-      await api.post(`/${entity.name}`, payload);
+      await api.post(`/${safeEntity.name}`, payload);
       toast('Record added');
     }
     fetchRecords(search);
@@ -64,7 +72,7 @@ export default function EntityApp({ entity, toast }) {
 
   async function handleDelete(id) {
     try {
-      await api.delete(`/${entity.name}/${id}`);
+      await api.delete(`/${safeEntity.name}/${id}`);
       toast('Record deleted');
       fetchRecords(search);
     } catch (err) {
@@ -78,13 +86,13 @@ export default function EntityApp({ entity, toast }) {
       {/* ── Stats summary bar ── */}
       <div className="flex flex-wrap gap-3">
         <StatPill label="Total records" value={records.length} />
-        <StatPill label="Fields" value={entity.fields.length} />
-        <StatPill label="Entity" value={entity.name} />
+        <StatPill label="Fields" value={safeEntity.fields.length} />
+        <StatPill label="Entity" value={safeEntity.name} />
       </div>
 
       {/* ── Form ── */}
       <DynamicForm
-        entity={entity}
+        entity={safeEntity}
         onSubmit={handleSubmit}
         editRecord={editRecord}
         onCancelEdit={() => setEditRecord(null)}
@@ -100,7 +108,7 @@ export default function EntityApp({ entity, toast }) {
         </svg>
         <input
           type="text"
-          placeholder={`Search ${entity.name}...`}
+          placeholder={`Search ${safeEntity.name}...`}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 shadow-card transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 hover:border-slate-300"
@@ -133,7 +141,7 @@ export default function EntityApp({ entity, toast }) {
         </div>
       ) : (
         <RecordTable
-          fields={entity.fields}
+          fields={safeEntity.fields}
           records={records}
           onEdit={setEditRecord}
           onDelete={handleDelete}

@@ -4,6 +4,17 @@ import Button from './ui/Button';
 
 const VALID_FIELD_TYPES = ['text', 'number', 'email', 'password', 'date', 'boolean'];
 
+// Map incoming type aliases to canonical types
+const FIELD_TYPE_ALIASES = {
+  string:   'text',
+  str:      'text',
+  int:      'number',
+  integer:  'number',
+  float:    'number',
+  bool:     'boolean',
+  checkbox: 'boolean',
+};
+
 /**
  * Sanitize a field definition before rendering.
  * Ensures the form never crashes on malformed config data.
@@ -12,15 +23,20 @@ function sanitizeField(field) {
   if (!field || typeof field !== 'object') {
     return { name: '_unknown', type: 'text', required: false, label: 'Unknown Field' };
   }
+  const rawName = field.name ?? field.key ?? field.column;
+  const name    = typeof rawName === 'string' && rawName.trim() ? rawName.trim() : '_unknown';
+
+  const rawType = typeof field.type === 'string' ? field.type.trim().toLowerCase() : '';
+  const type    = FIELD_TYPE_ALIASES[rawType] ??
+                  (VALID_FIELD_TYPES.includes(rawType) ? rawType : 'text');
+
   return {
-    name:     typeof field.name === 'string' && field.name ? field.name : '_unknown',
-    type:     typeof field.type === 'string' && VALID_FIELD_TYPES.includes(field.type)
-                ? field.type
-                : 'text',
+    name,
+    type,
     required: field.required === true,
     label:    typeof field.label === 'string' && field.label
                 ? field.label
-                : (typeof field.name === 'string' && field.name ? field.name : 'Unnamed Field'),
+                : (name !== '_unknown' ? name : 'Unnamed Field'),
   };
 }
 
@@ -66,6 +82,9 @@ function FieldInput({ field, value, onChange, error }) {
 
   const typeMap = { text: 'text', number: 'number', email: 'email', password: 'password', date: 'date' };
 
+  // Safe fallback — unknown types render as plain text input
+  const htmlType = typeMap[field.type] ?? 'text';
+
   return (
     <Input
       label={
@@ -74,7 +93,7 @@ function FieldInput({ field, value, onChange, error }) {
           {field.required && <span className="text-red-400 ml-1">*</span>}
         </span>
       }
-      type={typeMap[field.type] || 'text'}
+      type={htmlType}
       value={value ?? ''}
       onChange={(e) => onChange(field.name, e.target.value)}
       error={error}
