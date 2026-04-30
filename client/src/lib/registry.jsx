@@ -14,39 +14,36 @@ import DynamicForm from '../components/DynamicForm';
 import RecordTable from '../components/RecordTable';
 
 /**
- * Fallback shown when ui.type is unknown.
- * Never crashes — always renders something.
+ * Fallback shown when ui.type is unknown or unregistered.
+ * Never crashes — always renders something visible.
  */
 function UnknownComponent({ type }) {
   return (
     <div className="flex items-center justify-center h-full p-8">
       <div className="bg-amber-50 border border-amber-200 rounded-2xl px-8 py-6 max-w-sm text-center">
-        
         <p className="text-sm font-semibold text-amber-700">
-          Unsupported component:
-          <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono ml-1">
-            {String(type ?? "unknown")}
+          Unsupported component:{' '}
+          <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono">
+            {String(type ?? 'unknown')}
           </code>
         </p>
-
         <p className="text-xs text-amber-600 mt-2">
-          Add this type to <code>componentRegistry.jsx</code> to enable it.
+          Add this type to <code>registry.jsx</code> to enable it.
         </p>
-
       </div>
     </div>
   );
 }
 
-// ── Registry map ─────────────────────────────────────────────────────────
+// ── Registry map ──────────────────────────────────────────────────────────
 
 const REGISTRY = {
   entity: EntityApp,
-  form: DynamicForm,
-  table: RecordTable,
+  form:   DynamicForm,
+  table:  RecordTable,
   // Add new types here:
   // dashboard: DashboardComponent,
-  // chart: ChartComponent,
+  // chart:     ChartComponent,
 };
 
 /**
@@ -54,11 +51,9 @@ const REGISTRY = {
  * Always returns a renderable component — never null.
  */
 export function resolveComponent(type) {
-  if (typeof type === "string" && REGISTRY[type]) {
+  if (typeof type === 'string' && REGISTRY[type]) {
     return REGISTRY[type];
   }
-
-  // Safe fallback component
   return () => <UnknownComponent type={type} />;
 }
 
@@ -66,7 +61,7 @@ export function resolveComponent(type) {
  * Check if a type is registered.
  */
 export function isRegistered(type) {
-  return typeof type === "string" && type in REGISTRY;
+  return typeof type === 'string' && type in REGISTRY;
 }
 
 export default REGISTRY;

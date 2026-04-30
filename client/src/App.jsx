@@ -8,7 +8,7 @@ import Logo from './components/ui/Logo';
 import useToast from './hooks/useToast';
 import api from './api';
 import normalizeConfig from './lib/normalizeConfig';
-import { resolveComponent } from './lib/componentRegistry';
+import { resolveComponent } from './lib/registry';
 import { normalizeName } from './lib/normalizeConfig';
 
 // ── Sidebar icon ───────────────────────────────────────────────────────────
