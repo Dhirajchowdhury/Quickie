@@ -30,7 +30,7 @@ function UnknownComponent({ type }) {
           </code>
         </p>
         <p className="text-xs text-amber-600 mt-2">
-          Add this type to <code>componentRegistry.js</code> to enable it.
+          Add this type to <code>componentRegistry.jsx</code> to enable it.
         </p>
       </div>
     </div>
